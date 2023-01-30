@@ -1,0 +1,4 @@
+# Example .envrc.private
+export RUST_BACKTRACE=1
+export GITHUB_APP_ID=123456
+export GITHUB_APP_PRIVATE_KEY=path/to/github/private_key.pem
