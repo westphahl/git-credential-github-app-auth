@@ -2,7 +2,6 @@ use crate::parser;
 use crate::token::TokenService;
 use std::error::Error;
 use std::fs;
-use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,7 +21,7 @@ impl AuthAgent {
 
     pub async fn listen(&self, socket_path: PathBuf) -> Result<(), Box<dyn Error>> {
         let listener = UnixListener::bind(&socket_path)?;
-        fs::set_permissions(socket_path, Permissions::from_mode(0o600))?;
+        fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))?;
         loop {
             match listener.accept().await {
                 Ok((mut stream, _)) => {

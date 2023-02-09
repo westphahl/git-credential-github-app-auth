@@ -1,10 +1,8 @@
 use crate::parser::RepoInfo;
+use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::EncodingKey;
 use octocrab::models::InstallationId;
-// use octocrab::{from_response, Octocrab};
 use octocrab::Octocrab;
-// use reqwest;
-use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::error::Error;
