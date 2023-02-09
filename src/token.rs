@@ -40,31 +40,30 @@ impl TokenService {
     }
 
     pub async fn get_token(&self, repo_info: RepoInfo) -> Result<String, Box<dyn Error>> {
-        {
-            let installations = self.installations.read().await;
-            if let Some(installation_id) = installations.get(&repo_info) {
-                let tokens = self.cache.read().await;
-                if let Some(install_token) = tokens.get(installation_id) {
-                    if install_token.expires_at > Utc::now() - Duration::minutes(5) {
-                        return Ok(install_token.token.clone());
-                    }
+        let installations = self.installations.read().await;
+        let installation_id = if let Some(installation_id) = installations.get(&repo_info) {
+            let tokens = self.cache.read().await;
+            if let Some(install_token) = tokens.get(installation_id) {
+                if install_token.expires_at > Utc::now() - Duration::minutes(5) {
+                    return Ok(install_token.token.clone());
                 }
             }
-        }
-
-        let installation = self
-            .github_client
-            .apps()
-            .get_repository_installation(repo_info.organization.clone(), repo_info.name.clone())
-            .await
-            .unwrap();
-
-        eprintln!("Installation ID: {}", installation.id);
-
-        let url = self.github_client.absolute_url(format!(
-            "app/installations/{}/access_tokens",
+            *installation_id
+        } else {
+            let installation = self
+                .github_client
+                .apps()
+                .get_repository_installation(repo_info.organization.clone(), repo_info.name.clone())
+                .await
+                .unwrap();
             installation.id
-        ))?;
+        };
+        drop(installations);
+        eprintln!("Installation ID: {installation_id}");
+
+        let url = self
+            .github_client
+            .absolute_url(format!("app/installations/{installation_id}/access_tokens"))?;
         let request_builder = self
             .github_client
             .request_builder(url, reqwest::Method::POST);
@@ -80,11 +79,11 @@ impl TokenService {
 
         {
             let mut installations = self.installations.write().await;
-            installations.insert(repo_info, installation.id);
+            installations.insert(repo_info, installation_id);
         }
         {
             let mut tokens = self.cache.write().await;
-            tokens.insert(installation.id, installation_token.clone());
+            tokens.insert(installation_id, installation_token.clone());
         }
         Ok(installation_token.token)
     }
