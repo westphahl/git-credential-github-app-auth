@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             github_url,
         }) => {
             let pem_key = fs::read_to_string(key_path)?;
-            let app_key = EncodingKey::from_rsa_pem(pem_key.as_bytes()).unwrap();
+            let app_key = EncodingKey::from_rsa_pem(pem_key.as_bytes())?;
             let token_service = token::TokenService::new(*app_id, app_key, github_url.to_owned())?;
             let agent = agent::AuthAgent::new(token_service);
             // agent.listen(args.socket_path.to_owned()).await?;

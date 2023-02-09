@@ -54,8 +54,7 @@ impl TokenService {
                 .github_client
                 .apps()
                 .get_repository_installation(repo_info.organization.clone(), repo_info.name.clone())
-                .await
-                .unwrap();
+                .await?;
             installation.id
         };
         drop(installations);
