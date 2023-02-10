@@ -1,7 +1,8 @@
-use futures_util::stream::StreamExt;
 use std::cmp::{Eq, PartialEq};
 use std::error::Error;
 use std::hash::Hash;
+
+use futures_util::stream::StreamExt;
 use tokio::io::AsyncRead;
 use tokio_util::codec::{FramedRead, LinesCodec};
 

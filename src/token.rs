@@ -1,12 +1,14 @@
-use crate::parser::RepoInfo;
+use std::collections::HashMap;
+use std::error::Error;
+
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::EncodingKey;
 use octocrab::models::InstallationId;
 use octocrab::Octocrab;
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::error::Error;
 use tokio::sync::RwLock;
+
+use crate::parser::RepoInfo;
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct InstallationToken {

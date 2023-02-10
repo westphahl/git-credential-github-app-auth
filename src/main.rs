@@ -1,17 +1,23 @@
-use clap::{Parser, Subcommand};
-use jsonwebtoken::EncodingKey;
 use std::error::Error;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::result::Result;
+use std::sync::Arc;
+
+use clap::{Parser, Subcommand};
+use jsonwebtoken::EncodingKey;
+use tokio::io::AsyncWriteExt;
+use tokio::net::UnixListener;
 use tokio::net::UnixStream;
 use tokio::{io, signal};
 
-pub mod agent;
+use crate::token::TokenService;
+
 pub mod parser;
 pub mod token;
 
-/// Simple program to greet a person
+/// A git-credential helper that provides HTTPS credentials via Github app authentication.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -31,21 +37,23 @@ enum CredentialOp {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Runs the Github app authentication deamon
+    /// Runs the Github app authentication agent
     Agent {
-        /// lists test values
+        /// The Github app ID
         #[arg(long)]
         app_id: u64,
 
-        /// Sets a custom config file
-        #[arg(long, value_name = "FILE")]
+        /// Path to the app's private key
+        #[arg(long, value_name = "PRIVATE_KEY")]
         key_path: PathBuf,
 
         /// URL of the Github API
         #[arg(long, default_value = "https://api.github.com")]
         github_url: String,
     },
+    /// Runs the git-credential helper client
     Client {
+        /// The git-credential helper operation (only 'get' is implemented)
         #[arg(value_enum)]
         operation: CredentialOp,
     },
@@ -63,14 +71,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }) => {
             let pem_key = fs::read_to_string(key_path)?;
             let app_key = EncodingKey::from_rsa_pem(pem_key.as_bytes())?;
-            let token_service = token::TokenService::new(*app_id, app_key, github_url.to_owned())?;
-            let agent = agent::AuthAgent::new(token_service);
-            // agent.listen(args.socket_path.to_owned()).await?;
 
+            let token_service = Arc::new(token::TokenService::new(
+                *app_id,
+                app_key,
+                github_url.to_owned(),
+            )?);
             let socket_path = args.socket_path.to_owned();
             // Cleanup socket path on shutdown
             tokio::spawn(async move {
-                agent.listen(socket_path).await.unwrap();
+                agent(token_service, socket_path).await.unwrap();
             });
             match signal::ctrl_c().await {
                 Ok(()) => {
@@ -105,4 +115,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+pub async fn agent(
+    token_service: Arc<TokenService>,
+    socket_path: PathBuf,
+) -> Result<(), Box<dyn Error>> {
+    let listener = UnixListener::bind(&socket_path)?;
+    fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))?;
+    loop {
+        match listener.accept().await {
+            Ok((mut stream, _)) => {
+                eprintln!("New auth client!");
+                let service = token_service.clone();
+                tokio::spawn(async move {
+                    let (read_stream, write_stream) = stream.split();
+                    let repo_info = parser::parse_input(read_stream).await.unwrap();
+                    eprintln!("Got repo info: {repo_info:?}");
+
+                    let token = service.get_token(repo_info).await.unwrap();
+                    write_stream
+                        .try_write(format!("username=x-access-token\npassword={token}").as_bytes())
+                        .unwrap();
+                    stream.shutdown().await.unwrap();
+                });
+            }
+            Err(e) => {
+                eprintln!("Error accepting client: {e}");
+            }
+        }
+    }
 }
