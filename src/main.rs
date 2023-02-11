@@ -14,8 +14,8 @@ use tokio::{io, signal};
 
 use crate::token::TokenService;
 
-pub mod parser;
-pub mod token;
+mod parser;
+mod token;
 
 /// A git-credential helper that provides HTTPS credentials via Github app authentication.
 #[derive(Parser, Debug)]
@@ -121,7 +121,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub async fn agent(
+async fn agent(
     token_service: Arc<TokenService>,
     socket_path: PathBuf,
 ) -> Result<(), Box<dyn Error>> {
