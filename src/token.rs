@@ -3,6 +3,7 @@ use std::error::Error;
 
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::EncodingKey;
+use log::info;
 use octocrab::models::InstallationId;
 use octocrab::Octocrab;
 use serde::Deserialize;
@@ -58,7 +59,7 @@ impl TokenService {
             installation.id
         };
         drop(installations);
-        eprintln!("Installation ID: {installation_id}");
+        info!("Installation ID: {installation_id}");
 
         let url = self
             .github_client
@@ -71,7 +72,7 @@ impl TokenService {
 
         let mut debug_token = installation_token.token.clone();
         debug_token.truncate(10);
-        eprintln!(
+        info!(
             "Installation token: {}... (expires: {})",
             debug_token, installation_token.expires_at
         );

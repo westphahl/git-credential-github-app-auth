@@ -3,6 +3,7 @@ use std::error::Error;
 use std::hash::Hash;
 
 use futures_util::stream::StreamExt;
+use log::trace;
 use tokio::io::AsyncRead;
 use tokio_util::codec::{FramedRead, LinesCodec};
 
@@ -24,7 +25,7 @@ where
             Some(l) => l?,
             None => break,
         };
-        // eprintln!("Got line {:?}", line);
+        trace!("Got line {:?}", line);
         if line.is_empty() {
             break;
         }
@@ -36,7 +37,7 @@ where
             "protocol" => protocol.push_str(value),
             _ => {}
         }
-        eprintln!("Got attribute {attr:?} => {value:?}");
+        trace!("Got attribute {attr:?} => {value:?}");
     }
 
     if protocol != "https" {

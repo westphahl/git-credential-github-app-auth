@@ -6,8 +6,11 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.23"
 clap = { version = "4.1.4", features = ["derive"] }
+clap-verbosity-flag = "2.0.0"
+env_logger = "0.10.0"
 futures-util = "0.3.26"
 jsonwebtoken = "8.2.0"
+log = "0.4.17"
 octocrab = "0.18.1"
 reqwest = "0.11.14"
 serde = "1.0.152"

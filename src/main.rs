@@ -6,7 +6,9 @@ use std::result::Result;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use clap_verbosity_flag::Verbosity;
 use jsonwebtoken::EncodingKey;
+use log::{debug, error, info};
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
 use tokio::net::UnixStream;
@@ -21,6 +23,9 @@ mod token;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    #[clap(flatten)]
+    verbose: Verbosity,
+
     /// Path of the Unix auth socket
     socket_path: PathBuf,
 
@@ -62,6 +67,9 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
+    env_logger::Builder::new()
+        .filter_level(args.verbose.log_level_filter())
+        .init();
 
     match &args.command {
         Some(Commands::Agent {
@@ -87,7 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     fs::remove_file(&args.socket_path)?;
                 }
                 Err(err) => {
-                    eprintln!("Unable to listen for shutdown signal: {err}");
+                    error!("Unable to listen for shutdown signal: {err}");
                     // we also shut down in case of error
                 }
             }
@@ -99,20 +107,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let mut stdin = io::stdin();
                 let input_task = tokio::spawn(async move {
                     if let Err(e) = io::copy(&mut stdin, &mut write_stream).await {
-                        eprintln!("Error coping input on stdin to socket: {e:?}");
+                        error!("Error coping input on stdin to socket: {e:?}");
                     };
                 });
                 let mut stdout = io::stdout();
                 let output_task = tokio::spawn(async move {
                     if let Err(e) = io::copy(&mut read_stream, &mut stdout).await {
-                        eprintln!("Error coping output from socket to on stdout: {e:?}");
+                        error!("Error coping output from socket to on stdout: {e:?}");
                     }
                 });
                 input_task.await?;
                 output_task.await?;
             }
             _ => {
-                eprintln!("Operation '{operation:?}' not supported");
+                info!("Operation '{operation:?}' not supported");
             }
         },
         None => {}
@@ -130,16 +138,16 @@ async fn agent(
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
-                eprintln!("New auth client!");
+                debug!("New auth client!");
                 let service = token_service.clone();
                 tokio::spawn(async move {
                     if let Err(e) = handle_client(stream, &service).await {
-                        eprintln!("Error handling client: {e}");
+                        error!("Error handling client: {e}");
                     }
                 });
             }
             Err(e) => {
-                eprintln!("Error accepting client: {e}");
+                error!("Error accepting client: {e}");
             }
         }
     }
@@ -151,7 +159,7 @@ async fn handle_client(
 ) -> Result<(), Box<dyn Error>> {
     let (read_stream, write_stream) = stream.split();
     let repo_info = parser::parse_input(read_stream).await?;
-    eprintln!("Got repo info: {repo_info:?}");
+    info!("Got repo info: {repo_info:?}");
     let token = service.get_token(repo_info).await?;
 
     write_stream.try_write(format!("username=x-access-token\npassword={token}").as_bytes())?;
