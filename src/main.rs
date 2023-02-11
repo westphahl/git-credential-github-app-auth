@@ -98,11 +98,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let (mut read_stream, mut write_stream) = stream.into_split();
                 let mut stdin = io::stdin();
                 let input_task = tokio::spawn(async move {
-                    io::copy(&mut stdin, &mut write_stream).await.unwrap();
+                    if let Err(e) = io::copy(&mut stdin, &mut write_stream).await {
+                        eprintln!("Error coping input on stdin to socket: {e:?}");
+                    };
                 });
                 let mut stdout = io::stdout();
                 let output_task = tokio::spawn(async move {
-                    io::copy(&mut read_stream, &mut stdout).await.unwrap();
+                    if let Err(e) = io::copy(&mut read_stream, &mut stdout).await {
+                        eprintln!("Error coping output from socket to on stdout: {e:?}");
+                    }
                 });
                 input_task.await?;
                 output_task.await?;
@@ -130,14 +134,29 @@ pub async fn agent(
                 let service = token_service.clone();
                 tokio::spawn(async move {
                     let (read_stream, write_stream) = stream.split();
-                    let repo_info = parser::parse_input(read_stream).await.unwrap();
+                    let repo_info = if let Ok(r) = parser::parse_input(read_stream).await {
+                        r
+                    } else {
+                        eprintln!("Error parsing input");
+                        return;
+                    };
                     eprintln!("Got repo info: {repo_info:?}");
 
-                    let token = service.get_token(repo_info).await.unwrap();
-                    write_stream
+                    let token = match service.get_token(repo_info).await {
+                        Ok(t) => t,
+                        Err(e) => {
+                            eprintln!("Error getting token: {e:?}");
+                            return;
+                        }
+                    };
+                    if let Err(e) = write_stream
                         .try_write(format!("username=x-access-token\npassword={token}").as_bytes())
-                        .unwrap();
-                    stream.shutdown().await.unwrap();
+                    {
+                        eprintln!("Error writing response: {e:?}");
+                    };
+                    if let Err(e) = stream.shutdown().await {
+                        eprintln!("Error on stream shutdown: {e:?}");
+                    };
                 });
             }
             Err(e) => {
