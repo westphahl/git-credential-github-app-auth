@@ -129,34 +129,13 @@ pub async fn agent(
     fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))?;
     loop {
         match listener.accept().await {
-            Ok((mut stream, _)) => {
+            Ok((stream, _)) => {
                 eprintln!("New auth client!");
                 let service = token_service.clone();
                 tokio::spawn(async move {
-                    let (read_stream, write_stream) = stream.split();
-                    let repo_info = if let Ok(r) = parser::parse_input(read_stream).await {
-                        r
-                    } else {
-                        eprintln!("Error parsing input");
-                        return;
-                    };
-                    eprintln!("Got repo info: {repo_info:?}");
-
-                    let token = match service.get_token(repo_info).await {
-                        Ok(t) => t,
-                        Err(e) => {
-                            eprintln!("Error getting token: {e:?}");
-                            return;
-                        }
-                    };
-                    if let Err(e) = write_stream
-                        .try_write(format!("username=x-access-token\npassword={token}").as_bytes())
-                    {
-                        eprintln!("Error writing response: {e:?}");
-                    };
-                    if let Err(e) = stream.shutdown().await {
-                        eprintln!("Error on stream shutdown: {e:?}");
-                    };
+                    if let Err(e) = handle_client(stream, &service).await {
+                        eprintln!("Error handling client: {e}");
+                    }
                 });
             }
             Err(e) => {
@@ -164,4 +143,18 @@ pub async fn agent(
             }
         }
     }
+}
+
+async fn handle_client(
+    mut stream: UnixStream,
+    service: &Arc<TokenService>,
+) -> Result<(), Box<dyn Error>> {
+    let (read_stream, write_stream) = stream.split();
+    let repo_info = parser::parse_input(read_stream).await?;
+    eprintln!("Got repo info: {repo_info:?}");
+    let token = service.get_token(repo_info).await?;
+
+    write_stream.try_write(format!("username=x-access-token\npassword={token}").as_bytes())?;
+    stream.shutdown().await?;
+    Ok(())
 }
