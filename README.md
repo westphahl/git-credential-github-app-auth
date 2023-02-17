@@ -45,13 +45,14 @@ Configure the Git credential helper in `~/.gitconfig`:
     useHttpPath = true
 ```
 
-To test that the authentication helper work, you can either clone a repo that
-has the configured Github app installed or run the client from the command line
-and providing the input via stdin:
+To test that the authentication helper works, you can either clone a repo that
+has the configured Github app installed or run [`git credential
+fill`](https://git-scm.com/docs/git-credential) directly and provide e.g. the
+following input (see [expected
+format](https://git-scm.com/docs/git-credential#IOFMT)):
 
-```sh
-echo "protocol=https\nhost=github.com\npath=westphahl/git-credential-github-app-auth.git\n\n" \
-    | git-credential-github-app-auth \
-        /run/user/1000/github-app-auth \
-        client get
+```
+protocol=https
+host=github.com
+path=westphahl/git-credential-github-app-auth.git
 ```
