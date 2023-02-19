@@ -2,6 +2,14 @@
 name = "git-credential-github-app-auth"
 version = "0.1.0"
 edition = "2021"
+authors = ["Simon Westphahl <simon@westphahl.net>"]
+license = "MIT"
+description = "Git credential helper using GitHub App authentication to provide Github tokens as credentials to Git."
+readme = "README.md"
+homepage = "https://github.com/westphahl/git-credential-github-app-auth"
+repository = "https://github.com/westphahl/git-credential-github-app-auth"
+keywords = ["cli", "git", "github", "git-credential"]
+categories = ["command-line-utilities", "authentication"]
 
 [dependencies]
 chrono = { version = "0.4.23", default-features = false, features = ["serde"] }
