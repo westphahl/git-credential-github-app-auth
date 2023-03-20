@@ -48,11 +48,12 @@ Configure the Git credential helper in `~/.gitconfig`:
 To test that the authentication helper works, you can either clone a repo that
 has the configured Github app installed or run [`git credential
 fill`](https://git-scm.com/docs/git-credential) directly and provide e.g. the
-following input (see [expected
+following input (note the extra newline at the end; see also [expected
 format](https://git-scm.com/docs/git-credential#IOFMT)):
 
 ```
 protocol=https
 host=github.com
 path=westphahl/git-credential-github-app-auth.git
+
 ```

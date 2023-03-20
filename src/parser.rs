@@ -1,11 +1,9 @@
 use std::cmp::{Eq, PartialEq};
-use std::error::Error;
 use std::hash::Hash;
+use std::io::BufRead;
 
-use futures_util::stream::StreamExt;
+use anyhow::{anyhow, bail, Result};
 use log::trace;
-use tokio::io::AsyncRead;
-use tokio_util::codec::{FramedRead, LinesCodec};
 
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct RepoInfo {
@@ -13,44 +11,45 @@ pub struct RepoInfo {
     pub name: String,
 }
 
-pub async fn parse_input<T>(stream: T) -> Result<RepoInfo, Box<dyn Error>>
+pub fn parse_input<T>(stream: T) -> Result<RepoInfo>
 where
-    T: AsyncRead + Unpin,
+    T: BufRead + Unpin,
 {
     let mut repo_path = String::new();
     let mut protocol = String::new();
-    let mut reader = FramedRead::new(stream, LinesCodec::new());
-    loop {
-        let line = match reader.next().await {
-            Some(l) => l?,
-            None => break,
-        };
+    for input in stream.lines() {
+        trace!("Got input: {input:?}");
+        let line = input?;
         trace!("Got line {:?}", line);
         if line.is_empty() {
             break;
         }
         let (attr, value) = line
             .split_once('=')
-            .ok_or("Invalid input format (must be 'attr=value')")?;
+            .ok_or(anyhow!("Invalid input format (must be 'attr=value')"))?;
         match attr {
             "path" => repo_path.push_str(value),
             "protocol" => protocol.push_str(value),
             _ => {}
         }
         trace!("Got attribute {attr:?} => {value:?}");
+        if !(repo_path.is_empty() || protocol.is_empty()) {
+            // Got all necessary information
+            break;
+        }
     }
 
     if protocol != "https" {
-        Err("Cannot handle non-https protocols")?;
+        bail!("Cannot handle non-https protocols");
     }
 
     if repo_path.is_empty() {
-        Err("No repo path provided")?;
+        bail!("No repo path provided");
     }
 
-    let (organization, repo_path) = repo_path
-        .split_once('/')
-        .ok_or("Failed to extract organization and repo name (expected format 'org/repo')")?;
+    let (organization, repo_path) = repo_path.split_once('/').ok_or(anyhow!(
+        "Failed to extract organization and repo name (expected format 'org/repo')"
+    ))?;
     // Remove .git suffix that can be part of the clone URL
     let repository = repo_path.strip_suffix(".git").unwrap_or(repo_path);
 

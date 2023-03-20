@@ -1,18 +1,19 @@
-use std::error::Error;
 use std::fs;
+use std::io;
+use std::io::prelude::*;
+use std::net::Shutdown;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::result::Result;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
 
+use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
 use jsonwebtoken::EncodingKey;
 use log::{debug, error, info};
-use tokio::io::AsyncWriteExt;
-use tokio::net::UnixListener;
-use tokio::net::UnixStream;
-use tokio::{io, signal};
 
 use crate::token::TokenService;
 
@@ -64,8 +65,7 @@ enum Commands {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     let args = Args::parse();
     env_logger::Builder::new()
         .filter_level(args.verbose.log_level_filter())
@@ -77,6 +77,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
             key_path,
             github_url,
         }) => {
+            let running = Arc::new(AtomicBool::new(true));
+            let condition = Arc::new((Mutex::new(false), Condvar::new()));
+
+            let r = running.clone();
+            let c = condition.clone();
+            ctrlc::set_handler(move || {
+                r.store(false, Ordering::SeqCst);
+                let (_, c) = &*c;
+                c.notify_all();
+            })
+            .expect("Error setting Ctrl-C handler");
+
             let pem_key = fs::read_to_string(key_path)?;
             let app_key = EncodingKey::from_rsa_pem(pem_key.as_bytes())?;
 
@@ -86,38 +98,49 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 github_url.to_owned(),
             )?);
             let socket_path = args.socket_path.to_owned();
+            let r = running.clone();
             // Cleanup socket path on shutdown
-            tokio::spawn(async move {
-                agent(token_service, socket_path).await.unwrap();
+            let agent_thread = thread::spawn(move || {
+                agent(token_service, socket_path, r).unwrap();
             });
-            match signal::ctrl_c().await {
-                Ok(()) => {
-                    fs::remove_file(&args.socket_path)?;
-                }
-                Err(err) => {
-                    error!("Unable to listen for shutdown signal: {err}");
-                    // we also shut down in case of error
-                }
+
+            let (mutex, stop) = &*condition;
+            let mut guard = mutex.lock().or_else(|_| bail!("Mutext was poisoned"))?;
+            while running.load(Ordering::SeqCst) {
+                guard = stop.wait(guard).or_else(|_| bail!("Mutex was poisoned"))?;
             }
+            info!("Terminating ...");
+
+            // Wake up listener socket
+            let _ = UnixStream::connect(&args.socket_path);
+
+            if let Err(e) = agent_thread.join() {
+                bail!("Failed to join agent thread: {e:?}")
+            };
+            fs::remove_file(&args.socket_path)?;
         }
         Some(Commands::Client { operation }) => match operation {
             CredentialOp::Get => {
-                let stream = UnixStream::connect(args.socket_path.to_owned()).await?;
-                let (mut read_stream, mut write_stream) = stream.into_split();
+                let mut read_stream = UnixStream::connect(&args.socket_path)?;
+                let mut write_stream = read_stream.try_clone()?;
                 let mut stdin = io::stdin();
-                let input_task = tokio::spawn(async move {
-                    if let Err(e) = io::copy(&mut stdin, &mut write_stream).await {
+                let input_task = thread::spawn(move || {
+                    if let Err(e) = io::copy(&mut stdin, &mut write_stream) {
                         error!("Error coping input on stdin to socket: {e:?}");
                     };
                 });
                 let mut stdout = io::stdout();
-                let output_task = tokio::spawn(async move {
-                    if let Err(e) = io::copy(&mut read_stream, &mut stdout).await {
+                let output_task = thread::spawn(move || {
+                    if let Err(e) = io::copy(&mut read_stream, &mut stdout) {
                         error!("Error coping output from socket to on stdout: {e:?}");
                     }
                 });
-                input_task.await?;
-                output_task.await?;
+                if let Err(e) = input_task.join() {
+                    bail!("Failed to join input thread: {e:?}");
+                };
+                if let Err(e) = output_task.join() {
+                    bail!("Failed to join output thread: {e:?}");
+                };
             }
             _ => {
                 info!("Operation '{operation:?}' not supported");
@@ -129,19 +152,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn agent(
+fn agent(
     token_service: Arc<TokenService>,
     socket_path: PathBuf,
-) -> Result<(), Box<dyn Error>> {
+    running: Arc<AtomicBool>,
+) -> Result<()> {
     let listener = UnixListener::bind(&socket_path)?;
     fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))?;
-    loop {
-        match listener.accept().await {
-            Ok((stream, _)) => {
+    for stream in listener.incoming() {
+        if !running.load(Ordering::SeqCst) {
+            break;
+        }
+        match stream {
+            Ok(stream) => {
                 debug!("New auth client!");
                 let service = token_service.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = handle_client(stream, &service).await {
+                thread::spawn(move || {
+                    if let Err(e) = handle_client(stream, &service) {
                         error!("Error handling client: {e}");
                     }
                 });
@@ -151,18 +178,15 @@ async fn agent(
             }
         }
     }
+    Ok(())
 }
 
-async fn handle_client(
-    mut stream: UnixStream,
-    service: &Arc<TokenService>,
-) -> Result<(), Box<dyn Error>> {
-    let (read_stream, write_stream) = stream.split();
-    let repo_info = parser::parse_input(read_stream).await?;
+fn handle_client(mut stream: UnixStream, service: &Arc<TokenService>) -> Result<()> {
+    let repo_info = parser::parse_input(io::BufReader::new(stream.try_clone()?))?;
     info!("Got repo info: {repo_info:?}");
-    let token = service.get_token(repo_info).await?;
+    let token = service.get_token(repo_info)?;
 
-    write_stream.try_write(format!("username=x-access-token\npassword={token}").as_bytes())?;
-    stream.shutdown().await?;
+    stream.write_all(format!("username=x-access-token\npassword={token}\n").as_bytes())?;
+    stream.shutdown(Shutdown::Both)?;
     Ok(())
 }
