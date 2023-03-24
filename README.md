@@ -37,6 +37,9 @@ git-credential-github-app-auth \
     --key-path /path/to/app/private-key.pem
 ```
 
+For Github Enterprise installations the `--github-url` must be supplied and
+shoud be in the form of `https://<ghe-hostname>/api/v3`.
+
 Configure the Git credential helper in `~/.gitconfig`:
 
 ```git
