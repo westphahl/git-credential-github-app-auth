@@ -13,9 +13,9 @@ previous one expired.
 
 Create a [Github
 App](https://docs.github.com/en/apps/creating-github-apps/creating-github-apps/creating-a-github-app)
-and install it on the repositor or account/organization.
+and install it on the repository or account/organization.
 
-The app needs to have at least read-only
+The app needs to have at least read
 [permission](https://docs.github.com/en/apps/maintaining-github-apps/editing-a-github-apps-permissions)
 for the "Contents" of the repository.
 
@@ -25,28 +25,28 @@ for the app in order to make API requests.
 
 ## Usage
 
-Make sure the helper binary `git-credential-github-app-auth` is in your path.
-The authentication agent listens on a local Unix socket and can be started with
-the following command:
+1. Make sure the helper binary `git-credential-github-app-auth` is in your path.
+   The authentication agent listens on a local Unix socket and can be started with
+   the following command:
 
-```sh
-git-credential-github-app-auth \
-    /run/user/1000/github-app-auth \
-    agent \
-    --app-id 1234 \
-    --key-path /path/to/app/private-key.pem
-```
+   ```sh
+   git-credential-github-app-auth \
+       /run/user/1000/github-app-auth \
+       agent \
+       --app-id 1234 \
+       --key-path /path/to/app/private-key.pem
+   ```
 
-For Github Enterprise installations the `--github-url` must be supplied and
-shoud be in the form of `https://<ghe-hostname>/api/v3`.
+   For Github Enterprise installations the `--github-url` must be supplied and
+   shoud be in the form of `https://<ghe-hostname>/api/v3`.
 
-Configure the Git credential helper in `~/.gitconfig`:
+2. Configure the Git credential helper in `~/.gitconfig`:
 
-```git
-[credential "https://github.com"]
-    helper = "github-app-auth /run/user/1000/github-app-auth client"
-    useHttpPath = true
-```
+   ```git
+   [credential "https://github.com"]
+       helper = "github-app-auth /run/user/1000/github-app-auth client"
+       useHttpPath = true
+   ```
 
 To test that the authentication helper works, you can either clone a repo that
 has the configured Github app installed or run [`git credential
